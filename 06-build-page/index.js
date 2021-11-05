@@ -3,8 +3,6 @@ const fsp = fs.promises;
 const path = require("path");
 const EventEmitter = require("events");
 const emitter = new EventEmitter();
-const moduleCopyDir = require("../04-copy-directory/index");
-const moduleMergeStyles = require("../05-merge-styles/index");
 
 //directories
 const PROJECT_DIST = "project-dist";
@@ -23,6 +21,8 @@ const outputIndexHTML = fs.createWriteStream(
 );
 
 const data = {};
+let countReady = 0;
+let arrData = [];
 
 async function readDir(pathToDir, ext) {
   try {
@@ -62,9 +62,8 @@ async function writeIndexHTML(arrTags) {
       }
     }
 
-    // readFile(path, fileName, event, numberFiles);
     for (const file of arrFilesToRead) {
-      readFile(
+      readFileBundle(
         getAbsolutePath([COMPONENTS, file.name]),
         file.name,
         "finished reading components",
@@ -83,7 +82,7 @@ async function makeNewDir(pathToNewDir) {
   await fsp.mkdir(pathToNewDir, { recursive: true });
 }
 
-async function readFile(path, fileName, event, numberFiles, params) {
+async function readFileBundle(path, fileName, event, numberFiles, params) {
   const stream = fs.createReadStream(path, "utf-8");
   data[fileName] = "";
 
@@ -104,14 +103,12 @@ async function buildIndexHtml() {
   await makeNewDir(getAbsolutePath([PROJECT_DIST]));
 
   //read template.html
-  await readFile(
+  await readFileBundle(
     getAbsolutePath([TEMPLATE_HTML]),
     TEMPLATE_HTML,
     `finished reading ${TEMPLATE_HTML}`
   );
 }
-
-buildIndexHtml();
 
 //some our own events
 emitter.once("finished reading template.html", () => {
@@ -140,8 +137,103 @@ emitter.once("html file is ready", () => {
   //copy assets dir to project-dist/assets
   let pathToCopyDir = getAbsolutePath([PROJECT_DIST, ASSETS]);
   let pathToDir = getAbsolutePath([ASSETS]);
-  moduleCopyDir.copyDir(pathToCopyDir, pathToDir);
+  copyDir(pathToCopyDir, pathToDir);
 
   //create style.css
-  moduleMergeStyles.bundleFiles("style.css", __dirname);
+  bundleFiles("style.css", __dirname);
 });
+
+async function deleteDir(pathToCopyDir) {
+  try {
+    let files = await fsp.readdir(pathToCopyDir, { withFileTypes: true });
+
+    for (const file of files) {
+      if (file.isFile()) {
+        await fsp.rm(path.join(pathToCopyDir, file.name));
+      } else {
+        await deleteDir(path.join(pathToCopyDir, file.name));
+      }
+    }
+
+    await fsp.rmdir(pathToCopyDir);
+  } catch (err) {
+    return;
+  }
+}
+
+async function copyAll(pathToCopyDir, pathToDir) {
+  const files = await fsp.readdir(pathToDir, { withFileTypes: true });
+
+  for (const file of files) {
+    if (file.isFile()) {
+      fsp.copyFile(
+        path.join(pathToDir, file.name),
+        path.join(pathToCopyDir, file.name)
+      );
+    } else {
+      //create directory
+      let pathNewDir = path.join(pathToCopyDir, file.name);
+      await fsp.mkdir(pathNewDir, { recursive: true });
+      //copy all contents
+      await copyAll(pathNewDir, path.join(pathToDir, file.name));
+    }
+  }
+}
+
+async function copyDir(pathToCopyDir, pathToDir) {
+  await deleteDir(pathToCopyDir);
+
+  await fsp.mkdir(pathToCopyDir, { recursive: true });
+
+  await copyAll(pathToCopyDir, pathToDir);
+}
+
+function readFile(pathToCssFile, filesLength, i, fileName, dirName) {
+  const stream = fs.createReadStream(pathToCssFile, "utf-8");
+
+  stream.on("data", (chunk) => (arrData[i] += chunk));
+  stream.on("end", () => {
+    countReady++;
+
+    if (countReady === filesLength) {
+      emitter.emit("output", fileName, dirName);
+    }
+  });
+}
+
+emitter.once("output", (fileName, dirName) => {
+  let pathToTheFile = path.join(dirName, "project-dist", fileName);
+  const output = fs.createWriteStream(pathToTheFile);
+
+  arrData.forEach((item) => {
+    output.write(item + "\n");
+  });
+});
+
+async function bundleFiles(fileName, dirName) {
+  try {
+    let pathToStylesDir = path.join(dirName, "styles");
+    const files = await fsp.readdir(pathToStylesDir, {
+      withFileTypes: true,
+    });
+
+    let arrCssFiles = [];
+
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].isFile() && path.extname(files[i].name) === ".css") {
+        arrCssFiles.push(files[i]);
+      }
+    }
+
+    for (let i = 0; i < arrCssFiles.length; i++) {
+      let pathToCssFile = path.join(dirName, "styles", arrCssFiles[i].name);
+
+      arrData[i] = "";
+      readFile(pathToCssFile, arrCssFiles.length, i, fileName, dirName);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+buildIndexHtml();
