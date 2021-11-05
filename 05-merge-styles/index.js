@@ -26,7 +26,7 @@ emitter.once("output", (fileName, dirName) => {
   const output = fs.createWriteStream(pathToTheFile);
 
   arrData.forEach((item) => {
-    output.write(item);
+    output.write(item + "\n");
   });
 });
 
