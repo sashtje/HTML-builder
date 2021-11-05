@@ -5,15 +5,10 @@ const fsp = fs.promises;
 const EventEmitter = require("events");
 const emitter = new EventEmitter();
 
-let pathToTheFile = path.join(__dirname, "project-dist", "bundle.css");
-const output = fs.createWriteStream(pathToTheFile);
-
-let pathToStylesDir = path.join(__dirname, "styles");
-
 let countReady = 0;
 let arrData = [];
 
-function readFile(pathToCssFile, filesLength, i) {
+function readFile(pathToCssFile, filesLength, i, fileName, dirName) {
   const stream = fs.createReadStream(pathToCssFile, "utf-8");
 
   stream.on("data", (chunk) => (arrData[i] += chunk));
@@ -21,19 +16,23 @@ function readFile(pathToCssFile, filesLength, i) {
     countReady++;
 
     if (countReady === filesLength) {
-      emitter.emit("output");
+      emitter.emit("output", fileName, dirName);
     }
   });
 }
 
-emitter.once("output", () => {
+emitter.once("output", (fileName, dirName) => {
+  let pathToTheFile = path.join(dirName, "project-dist", fileName);
+  const output = fs.createWriteStream(pathToTheFile);
+
   arrData.forEach((item) => {
     output.write(item);
   });
 });
 
-async function bundleFiles() {
+async function bundleFiles(fileName, dirName) {
   try {
+    let pathToStylesDir = path.join(dirName, "styles");
     const files = await fsp.readdir(pathToStylesDir, {
       withFileTypes: true,
     });
@@ -47,14 +46,18 @@ async function bundleFiles() {
     }
 
     for (let i = 0; i < arrCssFiles.length; i++) {
-      let pathToCssFile = path.join(__dirname, "styles", arrCssFiles[i].name);
+      let pathToCssFile = path.join(dirName, "styles", arrCssFiles[i].name);
 
       arrData[i] = "";
-      readFile(pathToCssFile, arrCssFiles.length, i);
+      readFile(pathToCssFile, arrCssFiles.length, i, fileName, dirName);
     }
   } catch (err) {
     console.error(err);
   }
 }
 
-bundleFiles();
+exports.bundleFiles = bundleFiles;
+
+if (require.main === module) {
+  bundleFiles("bundle.css", __dirname);
+}
