@@ -11,7 +11,7 @@ async function readDir() {
         let arrFile = file.name.split(".");
         let pathToFile = path.join(__dirname, "secret-folder/", file.name);
         let stats = await fs.stat(pathToFile);
-        console.log(`${arrFile[0]} - ${arrFile[1]} - ${stats.size / 1000}kb`);
+        console.log(`${arrFile[0]} - ${arrFile[1]} - ${stats.size / 1024}kb`);
       }
     }
   } catch (err) {
